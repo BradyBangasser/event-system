@@ -15,7 +15,7 @@ class BaseEventListener {
 
 template <typename EventType> class EventListener : public BaseEventListener {
     public:
-        EventListener<EventListener>() = default;
+        EventListener() = default;
         using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
         CallbackFunction cb = [](const std::shared_ptr<EventType> &event) {
             std::cout << "here " << event->getId() << std::endl;

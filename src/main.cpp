@@ -1,24 +1,24 @@
 #include <string>
+#include <iostream>
 
 #include "event-listener.hpp"
 #include "event-manager.hpp"
 #include "event.hpp"
 
 int main() {
-    EventManager manager;
+    EventManager manager(100);
 
-    std::cout << isBaseOf<Event, MyEvent>::value << std::endl;
+    manager.registerListener<MyEvent>();
+    manager.registerListener<Event>();
 
-    // manager.registerListener<MyEvent>();
-    // manager.registerListener<Event>();
 
-    // Event event;
-    // MyEvent event1;
+    Event event;
+    MyEvent event1;
 
-    // manager.push(event);
+    manager.pushEvent(event);
     // manager.publish();
 
-    // manager.push(event1);
+    manager.pushEvent(event1);
     // manager.publish();
 
     return 0;
