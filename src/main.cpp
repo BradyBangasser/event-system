@@ -21,5 +21,7 @@ int main() {
     manager.pushEvent(event1);
     // manager.publish();
 
+    while(1);
+
     return 0;
 }

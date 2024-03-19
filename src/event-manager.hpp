@@ -11,8 +11,8 @@
 #include "event.hpp"
 #include "event-listener.hpp"
 
-typedef unsigned int uint;
-typedef unsigned char ushort;
+typedef unsigned int uint_t;
+typedef unsigned char ushort_t;
 
 // Cool little SFINAE
 template <typename Base, typename Child> struct isBaseOf {
@@ -48,15 +48,24 @@ class EventManager {
 
         friend class EventError;
 
+        // For debugging
+
+        std::mutex printerMutex;
+        template <typename T> void print(T arg) {
+            this->printerMutex.lock();
+            std::cout << arg << "\n";
+            this->printerMutex.unlock();
+        }
+
         // Not Tested
         void startEventPublisher() {
             std::thread([this]() {
                 std::chrono::milliseconds waitTime(this->publishInterval);
-                std::cout << "here\n";
                 while (1) {
                     if (!this->publish()) {
                         throw EventError();
                     }
+                    // this->print("Here");
 
                     std::this_thread::sleep_for(waitTime);
                 }
@@ -101,6 +110,7 @@ class EventManager {
         }
 
         bool publish() {
+            print("Here");
             static uint i, j, listenersLength = listeners.size();
             
             EventQueue *currentQueue = NULL;
