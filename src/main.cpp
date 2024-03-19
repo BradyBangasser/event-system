@@ -1,8 +1,6 @@
 #include <string>
 #include <iostream>
 
-#include "event-listener.hpp"
-#include "event-manager.hpp"
 #include "event.hpp"
 
 int main() {
