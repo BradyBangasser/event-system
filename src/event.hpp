@@ -4,12 +4,13 @@
 #include <memory>
 #include <thread>
 #include <mutex>
-#include <cinttypes>
+#include <inttypes.h>
 #include <chrono>
 #include <list>
 
-typedef unsigned int uint_t;
-typedef unsigned char ushort_t;
+// typedef unsigned int uint_t;
+// typedef unsigned char uint8_t;
+// typedef unsigned long long uint64_t;
 
 // Cool little SFINAE
 template <typename Base, typename Child> struct isBaseOf {
@@ -33,18 +34,18 @@ class EventError : public std::exception {
 // TODO Add string/int id based events
 class EventManager {
     private:
+        static uint64_t numberOfEvents;
+
         typedef std::queue<std::shared_ptr<Event>> EventQueue;
 
-        static constexpr uint_t numberOfQueues = 2;
+        static constexpr uint32_t numberOfQueues = 2;
 
         std::vector<EventQueue> queues;
         std::unique_ptr<std::mutex[]> queueMutex;
         // in ms
-        uint_t publishInterval;
+        uint32_t publishInterval;
 
         std::vector<std::unique_ptr<BaseEventListener>> listeners;
-
-        friend class EventError;
 
         // For debugging
 
@@ -68,7 +69,7 @@ class EventManager {
             }).detach();
         }
 
-        bool createQueues(uint_t num) {
+        bool createQueues(uint32_t num) {
             for (int i = 0; i < num; i++) {
                 queues.push_back(EventQueue());
                 queueMutex = std::unique_ptr<std::mutex[]>(new std::mutex[numberOfQueues]); 
@@ -79,7 +80,7 @@ class EventManager {
 
     public:
         
-        EventManager(uint_t publishInterval = 10) {
+        EventManager(uint32_t publishInterval = 10) {
             this->publishInterval = publishInterval;
             this->createQueues(numberOfQueues);
 
@@ -105,8 +106,10 @@ class EventManager {
             listeners.push_back(std::move(std::make_unique<T>(std::forward(args)...)));
         }
 
+
+
         bool publish() {
-            static uint_t i, j, listenersLength = listeners.size();
+            static uint32_t i, j, listenersLength = listeners.size();
             
             EventQueue *currentQueue = NULL;
 
@@ -131,7 +134,6 @@ class EventManager {
 
             return true;
         }
-
 
         template <typename T> void pushEvent(T event) {
             static_assert(isBaseOf<Event, T>::value);
@@ -169,42 +171,82 @@ class EventManager {
                 this->queues[0].push(event);
             }).detach();
         }
+
+        /**
+         * @brief Get an new event id
+         * 
+         * @warning Overflow not handled, do not use for calculations
+         * @return uint64_t 
+         */
+        static inline uint64_t getEventId() {
+            return numberOfEvents++;
+        }
 };
 
 class BaseEventListener {
-    public:
-        virtual ~BaseEventListener() = default;
+    private:
+        friend class EventManager;
+        uint64_t id;
+
+    protected:
         virtual void callback(const std::shared_ptr<Event> &event) const = 0;
         virtual bool myEvent(const std::shared_ptr<Event> &event) const = 0;
+
+        inline uint64_t generateId() {
+            return 0xffffffffffffffff;
+        }
+    public:
+        BaseEventListener() {
+
+        }
+
+        virtual ~BaseEventListener() = default;
+        inline uint64_t getId() { return id; }
 };
 
 template <typename EventType> class EventListener : public BaseEventListener {
-    public:
-        EventListener() = default;
+    private:
         using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
-        CallbackFunction cb = [](const std::shared_ptr<EventType> &event) {
-            std::cout << "here " << event->getId() << std::endl;
-        };
-        bool myEvent(const std::shared_ptr<Event> &event) const override {
-            std::cout << event->getId() << std::endl;
+        CallbackFunction callbackFn;
+    public:
+        EventListener(CallbackFunction callbackFn) {
+            this->callbackFn = callbackFn;
+        }
+
+        bool myEvent(const std::shared_ptr<Event> &event) const override { 
             return std::dynamic_pointer_cast<EventType>(event) != nullptr;
         }
 
         void callback(const std::shared_ptr<Event> &event) const override {
-            cb(std::dynamic_pointer_cast<EventType>(event));
+            callbackFn(std::dynamic_pointer_cast<EventType>(event));
         }
 };
 
 class Event {
     private:
+        friend class BaseEventListen;
+        friend class EventManager;
+
+        std::chrono::time_point<std::chrono::system_clock> time;
+        uint64_t id;
+
+        inline uint64_t generateId() {
+            return EventManager::getEventId();
+        }
 
     public:
         Event() {
-
+            time = std::chrono::system_clock::now();
+            this->id = this->generateId();
         }
 
-        virtual char getId() const {
-            return 'a';
+        Event(int id) {
+            time = std::chrono::system_clock::now();
+            this->id = id;
+        }
+
+        uint64_t getId() const {
+            return id;
         }
 
         virtual ~Event() = default;
@@ -216,8 +258,8 @@ class MyEvent : public Event {
         MyEvent() {
 
         }
+};
 
-        virtual char getId() const override {
-            return 'b';
-        }
+template <typename PayloadType> class PayloadEvent : public Event {
+
 };
