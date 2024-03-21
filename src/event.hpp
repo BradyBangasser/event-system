@@ -7,10 +7,15 @@
 #include <inttypes.h>
 #include <chrono>
 #include <list>
+#include <algorithm>
+#include <functional>
 
-// typedef unsigned int uint_t;
-// typedef unsigned char uint8_t;
-// typedef unsigned long long uint64_t;
+typedef uint64_t ListenerId;
+
+class Event;
+class EventManager;
+class BaseEventListener;
+template <typename T> class EventListener;
 
 // Cool little SFINAE
 template <typename Base, typename Child> struct isBaseOf {
@@ -89,24 +94,35 @@ class EventManager {
             }
         }
 
-        template <typename T> void registerListener() {
+        template <typename T> ListenerId registerListener() {
             static_assert(isBaseOf<Event, T>::value);
-            listeners.push_back(std::move(std::make_unique<EventListener<T>>()));
+            std::unique_ptr<EventListener<T>> listener = std::make_unique<EventListener<T>>();
+            ListenerId lid = listener->id;
+            listeners.push_back(std::move(listener));
+            return lid;
         }
 
         // Not tested
-        template <typename T> void registerListener(std::unique_ptr<T> &listener) {
+        template <typename T> ListenerId registerListener(std::unique_ptr<T> &listener) {
             static_assert(isBaseOf<BaseEventListener, T>::value);
             listeners.push_back(std::move(listener));
+            return listeners->id;
         }
 
         // Not tested
-        template <typename T, typename ...Args> void registerCustomListener(Args ...args) {
+        template <typename T, typename ...Args> ListenerId registerCustomListener(Args ...args) {
             static_assert(isBaseOf<BaseEventListener, T>::value);
-            listeners.push_back(std::move(std::make_unique<T>(std::forward(args)...)));
+            std::unique_ptr<T> listener = std::make_unique<T>(std::forward(args)...);
+            ListenerId lid = listener.id;
+            listeners.push_back(std::move(listener));
+            return lid;
         }
 
+        void deregisterListener(ListenerId id) {
+            this->listeners.erase(std::find_if(this->listeners.begin(), this->listeners.end(), [](std::unique_ptr<BaseEventListener) {
 
+            }));
+        }
 
         bool publish() {
             static uint32_t i, j, listenersLength = listeners.size();
@@ -186,7 +202,7 @@ class EventManager {
 class BaseEventListener {
     private:
         friend class EventManager;
-        uint64_t id;
+        ListenerId id;
 
     protected:
         virtual void callback(const std::shared_ptr<Event> &event) const = 0;
