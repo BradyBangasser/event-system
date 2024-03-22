@@ -10,12 +10,26 @@
 #include <algorithm>
 #include <functional>
 
+/**
+ * @brief The level of debugging statements
+ * [0-2]
+ */
+#define DEBUG_LEVEL 1
+
+struct Printer {
+    static std::mutex m_printer;
+    static void print(std::string message) {
+        m_printer.lock();
+        std::cout << message << "\n";
+        m_printer.unlock();
+    }
+};
+
 typedef uint64_t ListenerId;
 
 class Event;
 class EventManager;
 class BaseEventListener;
-template <typename T> class EventListener;
 
 // Cool little SFINAE
 template <typename Base, typename Child> struct isBaseOf {
@@ -33,6 +47,55 @@ class EventError : public std::exception {
         ~EventError() = default;
         const char *what() const noexcept {
             return "Aw nuts";
+        }
+};
+
+class BaseEventListener {
+    private:
+        friend class EventManager;
+        ListenerId id;
+
+    protected:
+        virtual void callback(const std::shared_ptr<Event> &event) const = 0;
+        virtual bool myEvent(const std::shared_ptr<Event> &event) const = 0;
+
+        inline uint64_t generateId() {
+            return 0xffffffffffffffff;
+        }
+    public:
+        BaseEventListener() {
+
+        }
+
+        virtual ~BaseEventListener() = default;
+        inline uint64_t getId() { return id; }
+};
+
+template <typename EventType> class EventListener : public BaseEventListener {
+    private:
+        using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
+        CallbackFunction callbackFn;
+
+        static void defaultCallbackFunction(const std::shared_ptr<EventType> &event) {
+            Printer::print("Event: " + event->getId());
+        }
+    public:
+        EventListener() {
+            static_assert(isBaseOf<Event, EventType>::value);
+            this->callbackFn = EventListener::defaultCallbackFunction;
+        }
+
+        EventListener(CallbackFunction callbackFn) : BaseEventListener() {
+            static_assert(isBaseOf<Event, EventType>::value);
+            this->callbackFn = callbackFn;
+        }
+
+        bool myEvent(const std::shared_ptr<Event> &event) const override { 
+            return std::dynamic_pointer_cast<EventType>(event) != nullptr;
+        }
+
+        void callback(const std::shared_ptr<Event> &event) const override {
+            callbackFn(std::dynamic_pointer_cast<EventType>(event));
         }
 };
 
@@ -106,7 +169,7 @@ class EventManager {
         template <typename T> ListenerId registerListener(std::unique_ptr<T> &listener) {
             static_assert(isBaseOf<BaseEventListener, T>::value);
             listeners.push_back(std::move(listener));
-            return listeners->id;
+            return listener->id;
         }
 
         // Not tested
@@ -119,9 +182,9 @@ class EventManager {
         }
 
         void deregisterListener(ListenerId id) {
-            this->listeners.erase(std::find_if(this->listeners.begin(), this->listeners.end(), [](std::unique_ptr<BaseEventListener) {
+            for (uint32_t i = 0; i < listeners.size(); i++) {
 
-            }));
+            }
         }
 
         bool publish() {
@@ -197,50 +260,13 @@ class EventManager {
         static inline uint64_t getEventId() {
             return numberOfEvents++;
         }
-};
+}; // EventManager
 
-class BaseEventListener {
-    private:
-        friend class EventManager;
-        ListenerId id;
-
-    protected:
-        virtual void callback(const std::shared_ptr<Event> &event) const = 0;
-        virtual bool myEvent(const std::shared_ptr<Event> &event) const = 0;
-
-        inline uint64_t generateId() {
-            return 0xffffffffffffffff;
-        }
-    public:
-        BaseEventListener() {
-
-        }
-
-        virtual ~BaseEventListener() = default;
-        inline uint64_t getId() { return id; }
-};
-
-template <typename EventType> class EventListener : public BaseEventListener {
-    private:
-        using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
-        CallbackFunction callbackFn;
-    public:
-        EventListener(CallbackFunction callbackFn) {
-            this->callbackFn = callbackFn;
-        }
-
-        bool myEvent(const std::shared_ptr<Event> &event) const override { 
-            return std::dynamic_pointer_cast<EventType>(event) != nullptr;
-        }
-
-        void callback(const std::shared_ptr<Event> &event) const override {
-            callbackFn(std::dynamic_pointer_cast<EventType>(event));
-        }
-};
+uint64_t EventManager::numberOfEvents = 0;
 
 class Event {
     private:
-        friend class BaseEventListen;
+        friend class BaseEventListener;
         friend class EventManager;
 
         std::chrono::time_point<std::chrono::system_clock> time;
