@@ -9,6 +9,7 @@
 #include <list>
 #include <algorithm>
 #include <functional>
+#include <string>
 
 /**
  * @brief The level of debugging statements
@@ -16,14 +17,14 @@
  */
 #define DEBUG_LEVEL 1
 
-struct Printer {
-    static std::mutex m_printer;
-    static void print(std::string message) {
+static std::mutex m_printer;
+static void print(uint8_t level, std::string message) {
+    if (level <= DEBUG_LEVEL) {
         m_printer.lock();
         std::cout << message << "\n";
         m_printer.unlock();
     }
-};
+}
 
 typedef uint64_t ListenerId;
 
@@ -50,26 +51,40 @@ class EventError : public std::exception {
         }
 };
 
+/**
+ * @brief This is the base event listener class, all event listeners extend this class
+ */
 class BaseEventListener {
     private:
         friend class EventManager;
-        ListenerId id;
+
+        static uint64_t numberOfListeners;
 
     protected:
+        ListenerId id;
+
         virtual void callback(const std::shared_ptr<Event> &event) const = 0;
         virtual bool myEvent(const std::shared_ptr<Event> &event) const = 0;
 
-        inline uint64_t generateId() {
-            return 0xffffffffffffffff;
+        inline ListenerId generateId() {
+            return numberOfListeners++;
         }
     public:
         BaseEventListener() {
-
+            this->id = generateId();
+            print(2, "Created Listener " + this->id);
         }
 
-        virtual ~BaseEventListener() = default;
+        BaseEventListener(ListenerId id) {
+            this->id = id;
+            print(2, "Created Listener " + this->id);
+        }
+
+        virtual ~BaseEventListener() = 0;
         inline uint64_t getId() { return id; }
-};
+}; // BaseEventListener
+
+uint64_t BaseEventListener::numberOfListeners = 0;
 
 template <typename EventType> class EventListener : public BaseEventListener {
     private:
@@ -77,12 +92,12 @@ template <typename EventType> class EventListener : public BaseEventListener {
         CallbackFunction callbackFn;
 
         static void defaultCallbackFunction(const std::shared_ptr<EventType> &event) {
-            Printer::print("Event: " + event->getId());
+            print("Event: " + std::to_string(event->getId()));
         }
     public:
         EventListener() {
             static_assert(isBaseOf<Event, EventType>::value);
-            this->callbackFn = EventListener::defaultCallbackFunction;
+            this->callbackFn = defaultCallbackFunction;
         }
 
         EventListener(CallbackFunction callbackFn) : BaseEventListener() {
@@ -114,15 +129,6 @@ class EventManager {
         uint32_t publishInterval;
 
         std::vector<std::unique_ptr<BaseEventListener>> listeners;
-
-        // For debugging
-
-        std::mutex printerMutex;
-        template <typename T> void print(T arg) {
-            this->printerMutex.lock();
-            std::cout << arg << "\n";
-            this->printerMutex.unlock();
-        }
 
         void startEventPublisher() {
             std::thread([this]() {
@@ -181,10 +187,16 @@ class EventManager {
             return lid;
         }
 
-        void deregisterListener(ListenerId id) {
-            for (uint32_t i = 0; i < listeners.size(); i++) {
-
+        bool deregisterListener(ListenerId id) {
+            uint32_t i;
+            for (i = 0; i < this->listeners.size(); i++) {
+                if (this->listeners[i]->id == id) {
+                    this->listeners.erase(this->listeners.begin() + i, this->listeners.end() + i);
+                    return true;
+                }
             }
+            
+            return false;
         }
 
         bool publish() {
@@ -295,6 +307,7 @@ class Event {
 
 };
 
+// Second event for debugging
 class MyEvent : public Event {
     public:
         MyEvent() {
@@ -303,5 +316,14 @@ class MyEvent : public Event {
 };
 
 template <typename PayloadType> class PayloadEvent : public Event {
+    private:
+        PayloadType payload;
+    public:
+        PayloadEvent(PayloadType payload) : Event() {
+            this->payload = payload;
+        }
 
+        inline const PayloadType getPayload() {
+            return payload;
+        }
 };
