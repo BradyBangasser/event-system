@@ -15,7 +15,7 @@
  * @brief The level of debugging statements
  * [0-2]
  */
-#define DEBUG_LEVEL 1
+#define DEBUG_LEVEL 3
 
 static std::mutex m_printer;
 static void print(uint8_t level, std::string message) {
@@ -31,6 +31,7 @@ typedef uint64_t ListenerId;
 class Event;
 class EventManager;
 class BaseEventListener;
+class IdBasedEvent;
 
 // Cool little SFINAE
 template <typename Base, typename Child> struct isBaseOf {
@@ -72,15 +73,15 @@ class BaseEventListener {
     public:
         BaseEventListener() {
             this->id = generateId();
-            print(2, "Created Listener " + this->id);
+            print(2, "Created Listener " + std::to_string(this->id));
         }
 
         BaseEventListener(ListenerId id) {
             this->id = id;
-            print(2, "Created Listener " + this->id);
+            print(2, "Created Listener " + std::to_string(this->id));
         }
 
-        virtual ~BaseEventListener() = 0;
+        virtual ~BaseEventListener() = default;
         inline uint64_t getId() { return id; }
 }; // BaseEventListener
 
@@ -92,12 +93,17 @@ template <typename EventType> class EventListener : public BaseEventListener {
         CallbackFunction callbackFn;
 
         static void defaultCallbackFunction(const std::shared_ptr<EventType> &event) {
-            print("Event: " + std::to_string(event->getId()));
+            print(1, "Event: " + std::to_string(event->getId()));
+        }
+
+        static void test() {
+            print(0, "This");
         }
     public:
         EventListener() {
             static_assert(isBaseOf<Event, EventType>::value);
             this->callbackFn = defaultCallbackFunction;
+            this->callbackFn(std::make_shared<EventType>());
         }
 
         EventListener(CallbackFunction callbackFn) : BaseEventListener() {
@@ -105,13 +111,21 @@ template <typename EventType> class EventListener : public BaseEventListener {
             this->callbackFn = callbackFn;
         }
 
-        bool myEvent(const std::shared_ptr<Event> &event) const override { 
+        ~EventListener() {};
+
+        bool myEvent(const std::shared_ptr<Event> &event) const override {
+            print(0, "Here\n");
             return std::dynamic_pointer_cast<EventType>(event) != nullptr;
         }
 
         void callback(const std::shared_ptr<Event> &event) const override {
+            print(0, "banana");
             callbackFn(std::dynamic_pointer_cast<EventType>(event));
         }
+};
+
+template <typename EventType> class IdBasedEventListener : public BaseEventListener {
+
 };
 
 // TODO Add string/int id based events
@@ -134,6 +148,7 @@ class EventManager {
             std::thread([this]() {
                 std::chrono::milliseconds waitTime(this->publishInterval);
                 while (1) {
+                    print(0, "this");
                     if (!this->publish()) {
                         throw EventError();
                     }
@@ -164,10 +179,12 @@ class EventManager {
         }
 
         template <typename T> ListenerId registerListener() {
+            print(0, "Register");
             static_assert(isBaseOf<Event, T>::value);
             std::unique_ptr<EventListener<T>> listener = std::make_unique<EventListener<T>>();
             ListenerId lid = listener->id;
             listeners.push_back(std::move(listener));
+            print(0, std::to_string(listeners.size()));
             return lid;
         }
 
@@ -204,17 +221,22 @@ class EventManager {
             
             EventQueue *currentQueue = NULL;
 
+            print(0, "Length: " + std::to_string(this->queues[0].size()) + " " + std::to_string((uint64_t) &listeners));
+
             for (i = 0; i < numberOfQueues; i++) {
                 this->queueMutex[i].lock();
 
                 currentQueue = &this->queues[i];
 
                 while (currentQueue->size() > 0) {
+                    print(0, "wa " + std::to_string(listenersLength));
                     std::shared_ptr<Event> event = currentQueue->front();
                     currentQueue->pop();
 
                     for (j = 0; j < listenersLength; j++) {
+                        print(0, std::to_string(this->listeners[j]->myEvent(event)));
                         if (this->listeners[j]->myEvent(event)) {
+                            print(0, "Event " + std::to_string(event->id));
                             this->listeners[j]->callback(event);
                         }
                     }
@@ -281,9 +303,10 @@ class Event {
         friend class BaseEventListener;
         friend class EventManager;
 
-        std::chrono::time_point<std::chrono::system_clock> time;
         uint64_t id;
+        std::chrono::time_point<std::chrono::system_clock> time;
 
+    protected:
         inline uint64_t generateId() {
             return EventManager::getEventId();
         }
@@ -306,6 +329,20 @@ class Event {
         virtual ~Event() = default;
 
 };
+
+class IdBasedEvent {
+    private:
+    
+    protected:
+
+        /**
+         * @brief This is the id that the listener will look for to identify it's events
+         */
+        static uint64_t eventTypeId;
+    public:
+
+        virtual ~IdBasedEvent() = default;
+}; // IdBasedEvent
 
 // Second event for debugging
 class MyEvent : public Event {
