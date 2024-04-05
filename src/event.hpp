@@ -18,7 +18,17 @@
  */
 #define DEBUG_LEVEL 3
 
+/**
+ * @brief Mutex to protect the standard out
+ */
 static std::mutex m_printer;
+
+/**
+ * @brief Thread safe printing
+ * 
+ * @param level The debug level of the message
+ * @param message The message to print
+ */
 static void print(uint8_t level, std::string message) {
     if (level <= DEBUG_LEVEL) {
         m_printer.lock();
@@ -27,8 +37,21 @@ static void print(uint8_t level, std::string message) {
     }
 }
 
+/**
+ * @brief The id of the listener
+ */
 using ListenerId = uint64_t;
+
+/**
+ * @brief The Event Id
+ * 
+ */
 using EventId = uint64_t;
+
+/**
+ * @brief The type of the id for ID based events
+ * 
+ */
 using EventTypeId = uint64_t;
 
 // Needed for EventManager
@@ -36,19 +59,43 @@ class Event;
 class BaseEventListener;
 class IdBasedEvent;
 
+/**
+ * @brief This manages all of the event listeners and events
+ */
 class EventManager {
     private:
         static uint64_t numberOfEvents;
 
+        /**
+         * @brief This is the type for the event queues
+         */
         using EventQueue = std::queue<std::shared_ptr<Event>>;
 
+        /**
+         * @brief The number of event queues that the manager will use, 2 is usually fine
+         * @note The dual queue system is to prevent delays while one of the queues if locked due to the publishing process
+         */
         static constexpr uint32_t numberOfQueues = 2;
 
+        /**
+         * @brief These are the event queues
+         */
         std::vector<EventQueue> queues;
+        /**
+         * @brief these are the mutexes to lock the queues
+         */
         std::unique_ptr<std::mutex []> queueMutex;
 
+        /**
+         * @brief How often the auto publisher will publish the queued events (milliseconds)
+         * @note if set to 0, the auto publisher will be disabled
+         */
         uint32_t publishInterval;
 
+        /**
+         * @brief 
+         * 
+         */
         std::vector<std::unique_ptr<BaseEventListener>> listeners;
 
         bool startEventPublisher();
@@ -150,9 +197,7 @@ template <typename PayloadType> class PayloadIdBasedEvent : public IdBasedEvent 
 // Second event for debugging
 class MyEvent : public Event {
     public:
-        MyEvent() {
-
-        }
+        MyEvent() {}
 }; // MyEvent
 
 template <typename PayloadType> class PayloadEvent : public Event {
@@ -180,14 +225,20 @@ template <typename Base, typename Child> struct isBaseOf {
 };
 
 class EventError : public std::exception {
+    private:
+        std::string message;
     public:
-        EventError(std::string message) {
+        EventError() {
+            this->message = "Default Error Message";
+        }
 
+        EventError(std::string message) {
+            this->message = message;
         }
 
         ~EventError() = default;
         const char *what() const noexcept {
-            return "Aw nuts";
+            return message.c_str();
         }
 }; // EventError
 
@@ -300,7 +351,7 @@ class IdBasedEventListener : public BaseEventListener {
             callbackFn(std::static_pointer_cast<IdBasedEvent>(event));
         }
 
-        virtual inline bool myEvent(const std::shared_ptr<Event> &event) const override {
+        inline bool myEvent(const std::shared_ptr<Event> &event) const override {
             std::shared_ptr<IdBasedEvent> castedEvent = std::dynamic_pointer_cast<IdBasedEvent>(event);
             return castedEvent != nullptr && castedEvent->getTypeId() == this->type;
         }
@@ -315,12 +366,11 @@ bool EventManager::startEventPublisher() {
     std::thread([this]() {
         std::chrono::milliseconds waitTime(this->publishInterval);
         while (1) {
-            print(0, "this");
+            std::this_thread::sleep_for(waitTime);
             if (!this->publish()) {
                 throw EventError("Failed to publish");
             }
 
-            std::this_thread::sleep_for(waitTime);
         }
     }).detach();
 
@@ -395,22 +445,19 @@ bool EventManager::publish() {
     
     EventQueue *currentQueue = NULL;
 
-    print(0, "Length: " + std::to_string(this->queues[0].size()) + " " + std::to_string((uint64_t) &listeners));
-
     for (i = 0; i < numberOfQueues; i++) {
         this->queueMutex[i].lock();
 
         currentQueue = &this->queues[i];
 
         while (currentQueue->size() > 0) {
-            print(0, "wa " + std::to_string(listenersLength));
             std::shared_ptr<Event> event = currentQueue->front();
             currentQueue->pop();
 
             for (j = 0; j < listenersLength; j++) {
                 print(0, std::to_string(this->listeners[j]->myEvent(event)));
                 if (this->listeners[j]->myEvent(event)) {
-                    print(0, "Event " + std::to_string(event->getId()));
+                    print(0, "Event: " + std::to_string(event->getId()));
                     this->listeners[j]->callback(event);
                 }
             }

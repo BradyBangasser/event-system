@@ -4,7 +4,7 @@
 #include "event.hpp"
 
 int main() {
-    EventManager manager(0);
+    EventManager manager;
 
     manager.registerListener<MyEvent>();
     // manager.registerListener<Event>();
@@ -22,6 +22,10 @@ int main() {
     // while(1);
     
     manager.registerIdBasedListener(0);
+
+    manager.pushEvent(MyEvent());
+
+    while(1);
 
     return 0;
 }
