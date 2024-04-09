@@ -93,27 +93,113 @@ class EventManager {
         uint32_t publishInterval;
 
         /**
-         * @brief 
-         * 
+         * @brief The listeners subscribed to this manager
          */
         std::vector<std::unique_ptr<BaseEventListener>> listeners;
 
+        /**
+         * @brief Start the automatic event publisher
+         * 
+         * @return true on success
+         * @return false on failure
+         */
         bool startEventPublisher();
+
+        /**
+         * @brief Create the event queues
+         * 
+         * @return true on success
+         * @return false on failure
+         */
         bool createQueues();
 
     public:
+        /**
+         * @brief Construct a new Event Manager object
+         * 
+         * @param publishInterval How often the auto publisher will run, set to 0 to disable
+         */
         EventManager(uint32_t publishInterval = 10);
 
+        /**
+         * @brief Registers a listener with the event manager
+         * 
+         * @tparam T The Type of event to listen for
+         * @return ListenerId The Id of the listener
+         */
         template <typename T> ListenerId registerListener();
+
+        /**
+         * @brief Registers a provided listener
+         * 
+         * @tparam T The type of event
+         * @param listener A pointer to the listener
+         * @return ListenerId The listener's id
+         */
         template <typename T> ListenerId registerListener(std::unique_ptr<T> &listener);
+
+        /**
+         * @brief Registers a custom listener
+         * 
+         * @tparam T The type of the listener
+         * @tparam Args The args to create it
+         * @param args The Args
+         * @return ListenerId The ID of the listener
+         */
         template <typename T, typename ...Args> ListenerId registerCustomListener(Args ...args);
+
+        /**
+         * @brief Creates an Id Based Event Listener
+         * 
+         * @tparam Args Args for @ref IdBasedEventListener
+         * @param args
+         * @return ListenerId
+         */
         template <typename ...Args> ListenerId registerIdBasedListener(Args ...args);
 
+        /**
+         * @brief Deregisters listener
+         * 
+         * @param id Listener Id
+         * @return true on success
+         * @return false on failure
+         */
         bool deregisterListener(ListenerId id);
+
+        /**
+         * @brief manually Publishes queued events to listeners
+         * 
+         * @return true on success
+         * @return false on failure
+         */
         bool publish();
 
+        /**
+         * @brief Pushes event to event queues
+         * @note this function will block if event queues are locked by mutexes, due to the publishing process
+         * 
+         * @tparam T Type of event, should extend @ref Event
+         * @param event The event
+         */
         template <typename T> void pushEvent(T event);
+
+        /**
+         * @brief Pushes event to event queues
+         * @note starts separate thread that calls the @ref pushEvent function
+         * 
+         * @tparam T Type of event, should extend @ref Event
+         * @param event The event
+         */
         template <typename T> void threadPushEvent(T event);
+
+        /**
+         * @brief Attempts to push event to queue
+         * 
+         * @tparam T Event type
+         * @param event 
+         * @return true on success
+         * @return false on failure
+         */
         template <typename T> bool tryPushEvent(T event);
 
         /**
@@ -125,8 +211,11 @@ class EventManager {
         static inline EventId generateId() { 
             return numberOfEvents++;
         }
-}; // EventManager
+}; // EventManager prototype
 
+/**
+ * @brief The Event class
+ */
 class Event {
     private:
         friend class BaseEventListener;
@@ -137,29 +226,51 @@ class Event {
     protected:
         std::chrono::time_point<std::chrono::system_clock> time;
 
-        inline uint64_t generateId() {
+        /**
+         * @brief Generates and returns an event id
+         * 
+         * @return Event Id 
+         */
+        inline EventId generateId() {
             return EventManager::generateId();
         }
 
     public:
+        /**
+         * @brief Construct a new Event object
+         */
         Event() {
             time = std::chrono::system_clock::now();
             this->id = this->generateId();
         }
 
+        /**
+         * @brief Construct a new Event object
+         * 
+         * @param id The id of the event
+         */
         Event(int id) {
             time = std::chrono::system_clock::now();
             this->id = id;
         }
 
-        uint64_t getId() const {
+        /**
+         * @brief Get the Event Id
+         * 
+         * @return The Event Id 
+         */
+        EventId getId() const {
             return id;
         }
 
         virtual ~Event() = default;
 
-};
+}; // Event
 
+/**
+ * @brief The base class for ID based events
+ * @note relies on a hard coded 
+ */
 class IdBasedEvent : public Event {
     protected:
 
@@ -170,10 +281,29 @@ class IdBasedEvent : public Event {
     public:
         IdBasedEvent() = delete;
 
-        IdBasedEvent(EventTypeId id) {
-            this->eventTypeId = id;
-        }
+        /**
+         * @brief Construct a new Id Based Event object
+         * 
+         * @param id Type Id
+         */
+        IdBasedEvent(EventTypeId id)
+        : eventTypeId(id) {}
 
+        /**
+         * @brief Construct a new Id Based Event object
+         * 
+         * @param tid Type Id 
+         * @param id Event Id
+         */
+        IdBasedEvent(EventTypeId tid, EventId id)
+        : Event(id), eventTypeId(tid) {}
+
+        /**
+         * @brief Get the Type Id
+         * @note this is now the @ref EventManager differentiates between different event types
+         * 
+         * @return EventTypeId 
+         */
         virtual inline EventTypeId getTypeId() {
             return eventTypeId;
         }
@@ -181,17 +311,45 @@ class IdBasedEvent : public Event {
         virtual ~IdBasedEvent() = default;
 }; // IdBasedEvent
 
+/**
+ * @brief An Event that contains a payload for the id listener handlers
+ * 
+ * @tparam PayloadType Payload Type
+ */
 template <typename PayloadType> class PayloadIdBasedEvent : public IdBasedEvent {
     private:
+        /**
+         * @brief The payload of the event
+         */
         PayloadType payload;
     public:
-
         PayloadIdBasedEvent() = delete;
 
-        // There has to be a better way to do this
-        PayloadIdBasedEvent(PayloadType payload) : IdBasedEvent(1ULL) {
-            this->payload = payload;
-        }
+        /**
+         * @brief Construct a new Payload Id Based Event object
+         * 
+         * @param payload The payload
+         * @private There has to be a better way to assign different type ids, I have considered using the string types that C++ generates but that seemed like it came with a large amount of overhead
+         */
+        PayloadIdBasedEvent(PayloadType payload) : IdBasedEvent(1ULL), payload(payload) {}
+
+        /**
+         * @brief Construct a new Payload Id Based Event
+         * 
+         * @param payload The payload
+         * @param id The Event Type Id
+         * @note this constructor is mainly for child classes
+         */
+        PayloadIdBasedEvent(PayloadType payload, EventTypeId tid) : IdBasedEvent(tid), payload(payload) {}
+
+        /**
+         * @brief Construct a new Payload Id Based Event
+         * 
+         * @param payload The Payload
+         * @param tid The Event Type Id
+         * @param id The Event Id
+         */
+        PayloadIdBasedEvent(PayloadType payload, EventTypeId tid, EventId id): IdBasedEvent(tid, id), payload(payload) {}
 }; // PayloadIdBasedEvent
 
 // Second event for debugging
@@ -200,20 +358,50 @@ class MyEvent : public Event {
         MyEvent() {}
 }; // MyEvent
 
+/**
+ * @brief An Event with a payload
+ * 
+ * @tparam PayloadType The payload type
+ */
 template <typename PayloadType> class PayloadEvent : public Event {
     private:
+        /**
+         * @brief The Payload
+         */
         PayloadType payload;
     public:
-        PayloadEvent(PayloadType payload) {
-            this->payload = payload;
-        }
+        /**
+         * @brief Construct a new Payload Event
+         * 
+         * @param payload The Payload
+         */
+        PayloadEvent(PayloadType payload) : payload(payload) {}
 
+        /**
+         * @brief Construct a new Payload Event
+         * 
+         * @param payload The Payload
+         * @param id The Event Id
+         */
+        PayloadEvent(PayloadType payload, EventId id) : payload(payload), Event(id) {}
+
+        /**
+         * @brief Get the Payload
+         * 
+         * @return The Payload
+         */
         inline const PayloadType getPayload() {
             return payload;
         }
 }; // PayloadEvent
 
-// Cool little SFINAE
+/**
+ * @brief Checks if a type is a child of a base
+ * @note Works based on SFINAE
+ * 
+ * @tparam Base The Base
+ * @tparam Child The Child
+ */
 template <typename Base, typename Child> struct isBaseOf {
     typedef int yes;
     typedef char no;
@@ -222,8 +410,11 @@ template <typename Base, typename Child> struct isBaseOf {
     static no check(...);
 
     enum { value = sizeof(check(static_cast<Child *>(0))) == sizeof(yes) };
-};
+}; // isBaseOf
 
+/**
+ * @brief Event Error class, thrown if a exception happens in the event handling or managing
+ */
 class EventError : public std::exception {
     private:
         std::string message;
@@ -249,23 +440,56 @@ class BaseEventListener {
     private:
         friend class EventManager;
 
+        /**
+         * @brief Number of listeners that exist
+         */
         static uint64_t numberOfListeners;
 
     protected:
+        /**
+         * @brief The Id of the listener 
+         */
         ListenerId id;
 
+        /**
+         * @brief This is the callback function for when an event is handled
+         * 
+         * @param event The Event Object
+         */
         virtual void callback(const std::shared_ptr<Event> &event) const = 0;
+
+        /**
+         * @brief Checks if an event is the one that this listener is listening for
+         * 
+         * @param event The Event in question
+         * @return true if the event belongs to this listener
+         * @return false if the event doesn't belong to this listener
+         */
         virtual bool myEvent(const std::shared_ptr<Event> &event) const = 0;
 
+        /**
+         * @brief Generates the listener's id
+         * 
+         * @return ListenerId 
+         */
         inline ListenerId generateId() {
             return numberOfListeners++;
         }
     public:
+        /**
+         * @brief Construct a new Base Event Listener
+         * @note generates the id
+         */
         BaseEventListener() {
             this->id = generateId();
             print(2, "Created Listener " + std::to_string(this->id));
         }
 
+        /**
+         * @brief Construct a new Base Event Listener
+         * 
+         * @param id The listener id
+         */
         BaseEventListener(ListenerId id) {
             this->id = id;
             print(2, "Created Listener " + std::to_string(this->id));
@@ -277,22 +501,45 @@ class BaseEventListener {
 
 uint64_t BaseEventListener::numberOfListeners = 0;
 
+/**
+ * @brief This is the generalized Event Listener
+ * 
+ * @tparam EventType 
+ * @extends BaseEventListener
+ */
 template <typename EventType> class EventListener : public BaseEventListener {
     private:
-        using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
-        CallbackFunction callbackFn;
-
+        /**
+         * @brief The default callback function
+         * 
+         * @param event The event
+         */
         static void defaultCallbackFunction(const std::shared_ptr<EventType> &event) {
             print(1, "Event: " + std::to_string(event->getId()));
         }
+    protected:
+        using CallbackFunction = std::function<void (const std::shared_ptr<EventType> &)>;
+
+        /**
+         * @brief This is the callback function that will be called
+         */
+        CallbackFunction callbackFn;
     public:
+
+        /**
+         * @brief Construct a new Event Listener
+         * @note Sets the callback function to the @ref defaultCallbackFunction
+         */
         EventListener() {
             static_assert(isBaseOf<Event, EventType>::value);
             this->callbackFn = defaultCallbackFunction;
-            // FOR DEBUGGING
-            this->callbackFn(std::make_shared<EventType>());
         }
 
+        /**
+         * @brief Construct a new Event Listener
+         * 
+         * @param callbackFn The callback function
+         */
         EventListener(CallbackFunction callbackFn) {
             static_assert(isBaseOf<Event, EventType>::value);
             this->callbackFn = callbackFn;
@@ -300,11 +547,23 @@ template <typename EventType> class EventListener : public BaseEventListener {
 
         ~EventListener() {};
 
+        /**
+         * @brief Checks if an event belongs to this listener
+         * 
+         * @param event The event
+         * @return true If it is
+         * @return false If not
+         */
         bool myEvent(const std::shared_ptr<Event> &event) const override {
             return std::dynamic_pointer_cast<EventType>(event) != nullptr;
         }
 
-        virtual void callback(const std::shared_ptr<Event> &event) const override {
+        /**
+         * @brief The function that will be called if @ref myEvent returns true
+         * 
+         * @param event The event
+         */
+        void callback(const std::shared_ptr<Event> &event) const override {
             try {
                 callbackFn(std::static_pointer_cast<EventType>(event));
             } catch (const std::exception &err) {
@@ -321,6 +580,9 @@ template <typename EventType> class EventListener : public BaseEventListener {
         }
 }; // EventListener
 
+/**
+ * @brief Id Based event listener
+ */
 class IdBasedEventListener : public BaseEventListener {
     private:
         EventTypeId type;
@@ -328,18 +590,33 @@ class IdBasedEventListener : public BaseEventListener {
         using CallbackFunction = std::function<void (const std::shared_ptr<IdBasedEvent> &)>;
         CallbackFunction callbackFn;
 
+        /**
+         * @brief The default callback function
+         * 
+         * @param event Event
+         */
         static void defaultCallbackFunction(const std::shared_ptr<IdBasedEvent> &event) {
             print(1, "Event: " + std::to_string(event->getId()));
         }
     public:
         IdBasedEventListener() = delete;
 
+        /**
+         * @brief Construct a new Id Based Event Listener object
+         * 
+         * @param type The type of 
+         */
         IdBasedEventListener(EventTypeId type) {
             this->type = type;
             this->callbackFn = defaultCallbackFunction;
         }
 
-
+        /**
+         * @brief Construct a new Id Based Event Listener
+         * 
+         * @param type The Event Type
+         * @param callbackFn The Callback Function
+         */
         IdBasedEventListener(EventTypeId type, CallbackFunction callbackFn) {
             this->type = type;
             this->callbackFn = callbackFn;
@@ -347,10 +624,22 @@ class IdBasedEventListener : public BaseEventListener {
 
         ~IdBasedEventListener() {}
 
+        /**
+         * @brief The callback that will be called by the event manager
+         * 
+         * @param event The event
+         */
         virtual inline void callback(const std::shared_ptr<Event> &event) const override {
             callbackFn(std::static_pointer_cast<IdBasedEvent>(event));
         }
 
+        /**
+         * @brief Checks if an event belongs to this listener
+         * 
+         * @param event The event
+         * @return true if it is
+         * @return false if not
+         */
         inline bool myEvent(const std::shared_ptr<Event> &event) const override {
             std::shared_ptr<IdBasedEvent> castedEvent = std::dynamic_pointer_cast<IdBasedEvent>(event);
             return castedEvent != nullptr && castedEvent->getTypeId() == this->type;
